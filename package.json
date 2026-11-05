@@ -1,0 +1,37 @@
+{
+  "name": "charlie-agent",
+  "version": "0.1.0",
+  "description": "Phone-first AI agent showcase inspired by Grok bots (Node.js)",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "charlie": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js serve",
+    "cli": "node src/cli.js",
+    "chat": "node src/cli.js chat",
+    "serve": "node src/cli.js serve",
+    "server": "node src/cli.js serve",
+    "call": "node src/cli.js call",
+    "test": "node --test tests/*.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "agent",
+    "twilio",
+    "grok",
+    "xai",
+    "voice",
+    "tool-calling"
+  ],
+  "author": "Sravan Kumar",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "twilio": "^5.3.5"
+  }
+}
