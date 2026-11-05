@@ -14,18 +14,16 @@ const MAX_BODY = 4_000;
 const ALLOWED_METHODS = new Set(["GET", "POST", "HEAD"]);
 
 /**
+ * Validate an HTTP tool call without contacting the network.
+ * The same checks run again inside {@link httpRequest} so a caller
+ * cannot skip the allowlist by going around the policy preflight.
+ *
  * @param {string} url
  * @param {string} [method]
- * @param {object | null} [jsonBody]
- * @param {number} [timeoutMs]
+ * @param {import("../config.js").Settings | null} [settings]
  */
-export async function httpRequest(
-  url,
-  method = "GET",
-  jsonBody = null,
-  timeoutMs = 10_000,
-) {
-  const settings = getSettings();
+export function validateHttpRequest(url, method = "GET", settings = null) {
+  settings = settings || getSettings();
   method = (method || "GET").toUpperCase();
   if (!ALLOWED_METHODS.has(method)) {
     return { ok: false, error: `method not allowed: ${method}` };
@@ -49,6 +47,24 @@ export async function httpRequest(
       allowlist: [...settings.httpAllowlistHosts].sort(),
     };
   }
+  return { ok: true, method, host, href: parsed.href };
+}
+
+/**
+ * @param {string} url
+ * @param {string} [method]
+ * @param {object | null} [jsonBody]
+ * @param {number} [timeoutMs]
+ */
+export async function httpRequest(
+  url,
+  method = "GET",
+  jsonBody = null,
+  timeoutMs = 10_000,
+) {
+  const check = validateHttpRequest(url, method);
+  if (!check.ok) return check;
+  method = check.method;
 
   try {
     /** @type {RequestInit} */

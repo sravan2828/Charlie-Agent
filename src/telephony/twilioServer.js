@@ -6,8 +6,10 @@
  * POST /voice/status   — call status callback (logging only)
  * GET  /health         — liveness
  *
- * Showcase uses Twilio Gather+Say turn-taking. Production would use
- * Media Streams + realtime STT/TTS (or Grok Voice Agent API).
+ * Showcase uses Twilio Gather+Say turn-taking. This transport stays.
+ * The handler uses the shared brain (via Agent), so tool policy matches
+ * the LiveKit voice worker. A later SIP trunk into LiveKit does not
+ * replace these routes; see docs/sip-trunks.md.
  */
 
 import express from "express";

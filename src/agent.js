@@ -9,18 +9,11 @@
  *     -> else: return final assistant text
  */
 
+import { Brain, SYSTEM_PROMPT } from "./brain/brain.js";
 import { getSettings } from "./config.js";
 import { LLMClient, LLMConfigError } from "./llm.js";
-import { CallerMemory } from "./memory.js";
-import { TOOL_SCHEMAS, dispatchTool } from "./tools/registry.js";
 
-export const SYSTEM_PROMPT = `You are Charlie, a helpful phone-first AI agent.
-You answer inbound phone calls and can place outbound calls / make tool calls.
-Keep spoken replies concise (1-3 sentences) unless the caller asks for detail.
-You may call tools when helpful. If a tool returns STUB data, say so honestly.
-You are an independent open-source agent inspired by Grok bots; you are not Grok
-and not affiliated with xAI.
-`;
+export { SYSTEM_PROMPT };
 
 export class Agent {
   /**
@@ -28,29 +21,33 @@ export class Agent {
    * @param {string} [opts.callerId]
    * @param {import("./config.js").Settings | null} [opts.settings]
    * @param {LLMClient | null} [opts.llm]
-   * @param {CallerMemory | null} [opts.memory]
+   * @param {import("./memory.js").CallerMemory | null} [opts.memory]
+   * @param {Brain | null} [opts.brain]
    */
-  constructor({ callerId = "cli", settings = null, llm = null, memory = null } = {}) {
+  constructor({
+    callerId = "cli",
+    settings = null,
+    llm = null,
+    memory = null,
+    brain = null,
+  } = {}) {
     this.settings = settings || getSettings();
     this.llm = llm || new LLMClient(this.settings);
-    this.memory = memory || new CallerMemory(callerId);
+    this.brain =
+      brain ||
+      new Brain({
+        callerId,
+        settings: this.settings,
+        memory,
+      });
+    this.memory = this.brain.memory;
     this.callerId = callerId;
-    this.messages = [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT + "\n\nCaller memory:\n" + this.memory.asPromptBlock(),
-      },
-    ];
+    this.messages = [{ role: "system", content: this.brain.instructions() }];
   }
 
   /** Start a fresh conversation while keeping caller memory. */
   reset() {
-    this.messages = [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT + "\n\nCaller memory:\n" + this.memory.asPromptBlock(),
-      },
-    ];
+    this.messages = [{ role: "system", content: this.brain.instructions() }];
   }
 
   /**
@@ -62,8 +59,8 @@ export class Agent {
     text = (text || "").trim();
     if (!text) return "I didn't catch that. Could you say it again?";
 
-    this.messages.push({ role: "user", content: text });
-    this.memory.addNote(`user: ${text.slice(0, 200)}`);
+    const clean = this.brain.noteUtterance("user", text);
+    this.messages.push({ role: "user", content: clean });
 
     let reply;
     try {
@@ -81,14 +78,14 @@ export class Agent {
       return reply;
     }
 
-    this.memory.addNote(`assistant: ${reply.slice(0, 200)}`);
+    this.brain.noteUtterance("assistant", reply);
     return reply;
   }
 
   async _runToolLoop() {
     const maxIters = this.settings.llmMaxToolIterations;
     for (let i = 0; i < maxIters; i++) {
-      const data = await this.llm.chat(this.messages, TOOL_SCHEMAS);
+      const data = await this.llm.chat(this.messages, this.brain.toolSchemas());
       const choice = (data.choices || [{}])[0];
       const message = choice.message || {};
       const toolCalls = message.tool_calls || [];
@@ -103,7 +100,9 @@ export class Agent {
         const fn = call.function || {};
         const name = fn.name || "";
         const rawArgs = fn.arguments || "{}";
-        const result = await dispatchTool(name, rawArgs, { memory: this.memory });
+        const result = await this.brain.executeTool(name, rawArgs, {
+          transcript: this._latestUserText(),
+        });
         this.messages.push({
           role: "tool",
           tool_call_id: call.id || name,
@@ -112,5 +111,13 @@ export class Agent {
       }
     }
     return "I ran out of tool-call steps. Could you rephrase the request?";
+  }
+
+  /** Latest user utterance, treated as data when a tool call is authorized. */
+  _latestUserText() {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].role === "user") return String(this.messages[i].content || "");
+    }
+    return "";
   }
 }

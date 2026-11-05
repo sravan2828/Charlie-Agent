@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Charlie</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #12140f;
+        --panel: #1c2118;
+        --ink: #f3f1e7;
+        --muted: #b7b39a;
+        --line: #34382c;
+        --accent: #d6f25c;
+        --danger: #ff8b7b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font: 16px/1.45 "Iowan Old Style", Palatino, Georgia, serif;
+        background: radial-gradient(1200px 500px at 10% -10%, #2a3320, var(--bg));
+        color: var(--ink);
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 { font-size: 2.4rem; font-weight: 500; margin: 0 0 0.25rem; }
+      p.lead { color: var(--muted); margin-top: 0; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 1.1rem;
+      }
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button, input {
+        font: inherit;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink);
+        padding: 0.55rem 0.95rem;
+      }
+      button.primary { background: var(--accent); color: #1a1c12; border-color: transparent; font-weight: 600; }
+      button:disabled { opacity: 0.45; }
+      label { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.85rem; flex: 1; }
+      input { width: 100%; border-radius: 12px; }
+      #status { min-height: 1.4rem; margin: 0.8rem 0; color: var(--muted); }
+      #status.error { color: var(--danger); }
+      #log {
+        list-style: none;
+        padding: 0;
+        margin: 0.5rem 0 0;
+        display: grid;
+        gap: 0.45rem;
+        max-height: 22rem;
+        overflow: auto;
+      }
+      #log li { padding: 0.45rem 0.6rem; border-radius: 10px; background: #141710; }
+      #log .who { display: block; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+      audio { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Charlie</h1>
+      <p class="lead">Speak, and hear the reply. This page is only a transport: tools and memory live in the worker.</p>
+      <section class="panel">
+        <div class="row">
+          <label>Room <input id="room" value="charlie-web" autocomplete="off" /></label>
+          <label>You <input id="identity" value="owner" autocomplete="off" /></label>
+        </div>
+        <div class="row" style="margin-top: 0.8rem">
+          <button id="connect" class="primary" type="button">Connect</button>
+          <button id="mute" type="button" disabled>Mute mic</button>
+          <button id="disconnect" type="button" disabled>Disconnect</button>
+        </div>
+        <p id="status">Idle. Start the token server and the voice worker, then connect.</p>
+        <ul id="log"></ul>
+        <div id="audio"></div>
+      </section>
+    </main>
+    <script type="module">
+      import { Room, RoomEvent, Track } from "https://esm.sh/livekit-client@2.23.0";
+
+      const statusEl = document.querySelector("#status");
+      const logEl = document.querySelector("#log");
+      const connectBtn = document.querySelector("#connect");
+      const muteBtn = document.querySelector("#mute");
+      const disconnectBtn = document.querySelector("#disconnect");
+      const audioRoot = document.querySelector("#audio");
+      const roomInput = document.querySelector("#room");
+      const identityInput = document.querySelector("#identity");
+
+      const room = new Room();
+      let micOn = false;
+      const lines = new Map();
+
+      function setStatus(text, isError = false) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle("error", isError);
+      }
+
+      function addLine(key, who, text, partial) {
+        let li = lines.get(key);
+        if (!li) {
+          li = document.createElement("li");
+          const whoEl = document.createElement("span");
+          whoEl.className = "who";
+          whoEl.textContent = who;
+          const body = document.createElement("span");
+          body.className = "body";
+          li.append(whoEl, body);
+          logEl.append(li);
+          lines.set(key, li);
+        }
+        li.querySelector(".body").textContent = text + (partial ? " …" : "");
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind !== Track.Kind.Audio) return;
+        const element = track.attach();
+        element.autoplay = true;
+        audioRoot.append(element);
+      });
+
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        for (const element of track.detach()) element.remove();
+      });
+
+      room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+        const who = participant?.identity || "charlie";
+        for (const segment of segments) {
+          const key = segment.id || `${who}-live`;
+          addLine(key, who, segment.text || "", segment.final === false);
+        }
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        setStatus("Disconnected.");
+        connectBtn.disabled = false;
+        muteBtn.disabled = true;
+        disconnectBtn.disabled = true;
+        micOn = false;
+      });
+
+      connectBtn.addEventListener("click", async () => {
+        connectBtn.disabled = true;
+        setStatus("Requesting a token…");
+        try {
+          const params = new URLSearchParams({
+            room: roomInput.value,
+            identity: identityInput.value,
+          });
+          const response = await fetch(`/token?${params}`);
+          const body = await response.json();
+          if (!response.ok || !body.token || !body.url) {
+            throw new Error(body.error || `Token request failed (${response.status})`);
+          }
+          setStatus("Connecting microphone…");
+          await room.connect(body.url, body.token);
+          await room.localParticipant.setMicrophoneEnabled(true);
+          micOn = true;
+          muteBtn.disabled = false;
+          disconnectBtn.disabled = false;
+          muteBtn.textContent = "Mute mic";
+          setStatus(`In room ${body.room} as ${body.identity}. Speak when you're ready.`);
+        } catch (error) {
+          connectBtn.disabled = false;
+          setStatus(error.message || String(error), true);
+        }
+      });
+
+      muteBtn.addEventListener("click", async () => {
+        micOn = !micOn;
+        await room.localParticipant.setMicrophoneEnabled(micOn);
+        muteBtn.textContent = micOn ? "Mute mic" : "Unmute mic";
+      });
+
+      disconnectBtn.addEventListener("click", async () => {
+        await room.disconnect();
+      });
+    </script>
+  </body>
+</html>
