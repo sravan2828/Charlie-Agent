@@ -14,6 +14,9 @@
     "serve": "node src/cli.js serve",
     "server": "node src/cli.js serve",
     "call": "node src/cli.js call",
+    "token": "node src/cli.js token",
+    "voice": "node src/livekit/agent.js dev",
+    "voice:start": "node src/livekit/agent.js start",
     "test": "node --test tests/*.js"
   },
   "engines": {
@@ -30,8 +33,12 @@
   "author": "Sravan Kumar",
   "license": "MIT",
   "dependencies": {
+    "@livekit/agents": "1.9.5",
+    "@livekit/agents-plugin-openai": "1.9.5",
+    "@livekit/agents-plugin-xai": "1.9.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "livekit-server-sdk": "2.19.2",
     "twilio": "^5.3.5"
   }
 }

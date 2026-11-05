@@ -6,9 +6,11 @@
  */
 
 export { Agent, SYSTEM_PROMPT } from "./agent.js";
+export { Brain, ToolPolicy, TOOL_CATALOG } from "./brain/index.js";
 export { getSettings, clearSettingsCache } from "./config.js";
 export { LLMClient, LLMConfigError } from "./llm.js";
 export { CallerMemory } from "./memory.js";
+export { classifyParticipant } from "./livekit/participant.js";
 export { TOOL_SCHEMAS, dispatchTool } from "./tools/registry.js";
 
 export const VERSION = "0.1.0";
