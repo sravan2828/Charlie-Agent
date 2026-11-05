@@ -8,7 +8,7 @@
  *   node src/cli.js token          # LiveKit token + web client
  */
 
-import readline from "node:readline/promises";
+import readline from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 
 function printHelp() {
@@ -130,16 +130,44 @@ async function cmdChat(args) {
   }
 
   const agent = new Agent({ callerId: caller });
-  const rl = readline.createInterface({ input, output });
+  const rl = readline.createInterface({ input, output, prompt: "you> " });
+  // Queue lines ourselves. readline drops a line that arrives while
+  // question() is not pending, which is exactly when a piped "quit"
+  // shows up during an async model turn.
+  const queued = [];
+  let closed = false;
+  /** @type {(() => void) | null} */
+  let wake = null;
+  rl.on("line", (line) => {
+    queued.push(line);
+    wake?.();
+  });
+  rl.on("close", () => {
+    closed = true;
+    wake?.();
+  });
+
+  const nextLine = () =>
+    new Promise((resolve) => {
+      if (queued.length || closed) {
+        resolve();
+        return;
+      }
+      wake = () => {
+        wake = null;
+        resolve();
+      };
+    });
+
   try {
     while (true) {
-      let user;
-      try {
-        user = (await rl.question("you> ")).trim();
-      } catch {
+      if (!closed) rl.prompt();
+      await nextLine();
+      if (!queued.length) {
         console.log("\nbye.");
         break;
       }
+      const user = queued.shift().trim();
       if (!user) continue;
       if (["quit", "exit", "bye"].includes(user.toLowerCase())) {
         console.log("bye.");
